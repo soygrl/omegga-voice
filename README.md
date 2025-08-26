@@ -6,7 +6,7 @@ After installing, users can connect to your server by going to `https://<your ip
 
 ## Usage
 
-Install with `omegga install gh:voximity/voice`.
+Install with `omegga install gh:soygrl/voice`.
 
 ## Config
 
