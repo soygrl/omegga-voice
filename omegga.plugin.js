@@ -27,39 +27,6 @@ module.exports = class VoicePlugin {
     return code;
   }
 
-  async getAllPlayerPositions() {
-    const pawnRegExp = /(?<index>\d+)\) BP_PlayerController_C .+?PersistentLevel\.(?<controller>BP_PlayerController_C_\d+)\.Pawn = (?:None|BP_FigureV2_C'.+?:PersistentLevel.(?<pawn>BP_FigureV2_C_\d+)')?$/;
-    const posRegExp = /(?<index>\d+)\) CapsuleComponent .+?PersistentLevel\.(?<pawn>BP_FigureV2_C_\d+)\.CollisionCylinder\.RelativeLocation = \(X=(?<x>[\d.-]+),Y=(?<y>[\d.-]+),Z=(?<z>[\d.-]+)\)$/;
-    const deadFigureRegExp = /(?<index>\d+)\) BP_FigureV2_C .+?PersistentLevel\.(?<pawn>BP_FigureV2_C_\d+)\.bIsDead = (?<dead>(True|False))$/;
-
-    // wait for the pawn and position watchers to return all the results
-    const [ pawns, deadFigures, positions ] = await Promise.all([
-      this.omegga.watchLogChunk('GetAll BP_PlayerController_C Pawn', pawnRegExp, {first: 'index'}),
-      this.omegga.watchLogChunk('GetAll BP_FigureV2_C bIsDead', deadFigureRegExp, {first: 'index'}),
-      this.omegga.watchLogChunk('GetAll SceneComponent RelativeLocation Name=CollisionCylinder', posRegExp, {first: 'index'}),
-    ]);
-
-    return pawns
-      // iterate through the pawn+controllers
-      .map(pawn => ({
-      // find the player for the associated controller
-        player: this.omegga.getPlayer(pawn.groups.controller),
-        // find the position for the associated pawn
-        pos: positions.find(pos => pawn.groups.pawn === pos.groups.pawn),
-        isDead: deadFigures.find(dead => pawn.groups.pawn === dead.groups.pawn),
-        pawn,
-      }))
-      // filter by only those who have both player. previously we filtered by position but this breaks for players without a pawn, instead it's preferable to pass null
-      .filter(p => p.player != null)
-      // turn the position into a [x, y, z] number array (last 3 items in the array)
-      .map(p => ({
-        player: p?.player,
-        pawn: p?.pawn?.groups?.pawn || null,
-        pos: p?.pos ? p.pos.slice(3).map(Number) : null,
-        isDead: p?.isDead ? p.isDead.groups.dead === 'True' : true,
-      }));
-  }
-
   async getMinigames() {
     // patterns to match the console logs
     const ruleNameRegExp = /^(?<index>\d+)\) BP_Ruleset_C (.+):PersistentLevel.(?<ruleset>BP_Ruleset_C_\d+)\.RulesetName = (?<name>.*)$/;
@@ -134,7 +101,7 @@ module.exports = class VoicePlugin {
 
     // run the pattern commands
     return Promise.all([
-      this.getAllPlayerPositions(),
+      this.omegga.getAllPlayerPositions(),
       this.omegga.watchLogChunk('GetAll SceneComponent RelativeRotation Name=CollisionCylinder', rotRegExp, {first: 'index'}),
       //this.omegga.watchLogChunk('GetAll BP_FigureV2_C bIsCrouched', crouchedRegExp, {first: 'index'}),
       //this.omegga.watchLogArray('GetAll BP_FigureV2_C ActiveEmotes', emotePlayerRegExp, emoteStateRegExp),
@@ -325,10 +292,12 @@ module.exports = class VoicePlugin {
       for (let i = this.players.length - 1; i >= 0; i--) {
         if (this.players[i].user == player.name) {
           this.omegga.broadcast(`<color="ff0"><b>${player.name}</></> left the voice chat.`);
-          this.players[i].socket.emit("bye");
-          this.players[i].socket.disconnect(true);
-          this.players[i].socket.removeAllListeners();
-          this.players[i].socket = null;
+          if (this.players[i].socket) {
+            this.players[i].socket.emit("bye");
+            this.players[i].socket.disconnect(true);
+            this.players[i].socket.removeAllListeners();
+            this.players[i].socket = null;
+          }
           this.io.emit("peer leave", {name: player.name, peerId: this.players[i].peerId});
           this.players.splice(i, 1);
         }
